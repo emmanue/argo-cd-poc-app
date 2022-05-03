@@ -1,0 +1,86 @@
+name: Demo CI
+
+on:   
+  push:
+    branches:
+      - main
+
+  pull_request:
+
+  # Run manually.
+  workflow_dispatch:
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+
+    outputs:
+      version: ${{ steps.variables.outputs.version }}
+      registry: ${{ steps.variables.outputs.registry }}
+      env-name: ${{ steps.variables.outputs.env-name }}
+      app-name: ${{ steps.variables.outputs.app-name }}
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set variables
+        id: variables
+        run: |
+          version=${GITHUB_SHA}
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            version=$(<VERSION)
+          fi
+          env_name="staging"
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            env_name="pr"
+          fi
+          app_name="guestbook-${env_name}"
+          echo "::set-output name=version::${version}"
+          echo "::set-output name=registry::ghcr.io/${{ github.repository_owner }}"
+          echo "::set-output name=env-name::${env_name}"
+          echo "::set-output name=app-name::${app_name}"
+      - name: Build image
+        env:
+          VERSION: ${{ steps.variables.outputs.version }}
+          REGISTRY: ${{ steps.variables.outputs.registry }}
+        run: |
+          make build
+      - name: Log in to registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+      - name: Push image
+        env:
+          VERSION: ${{ steps.variables.outputs.version }}
+          REGISTRY: ${{ steps.variables.outputs.registry }}
+        run: |
+          make push
+  trigger-deployment:
+    needs: build-image
+    runs-on: ubuntu-latest
+    if: github.event_name != 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          repository: ${{ github.repository_owner }}/guestbook-go-config
+          token: ${{ secrets.CONFIG_GITHUB_TOKEN }}
+      
+      - uses: imranismail/setup-kustomize@v1
+
+      - name: Update app image
+        run: |
+          cd overlays/${{ needs.build-image.outputs.env-name }}
+          kustomize edit set image "guestbook=${{ needs.build-image.outputs.registry }}/guestbook:${{ needs.build-image.outputs.version }}"
+      - name: Commit and push app file
+        run: |
+          git add overlays/${{ needs.build-image.outputs.env-name }}
+          needs_commit=$(git diff --quiet HEAD || echo "true")
+          if [[ "${needs_commit}" == "true" ]]; then
+            git config user.email "guestbook-go-ci@example.com"
+            git config user.name "guestbook-go CI"
+            git commit -m "Update app ${{ needs.build-image.outputs.app-name }}"
+            git push origin main
+          fi
