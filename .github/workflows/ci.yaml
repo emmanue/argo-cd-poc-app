@@ -57,30 +57,3 @@ jobs:
           REGISTRY: ${{ steps.variables.outputs.registry }}
         run: |
           make push
-  trigger-deployment:
-    needs: build-image
-    runs-on: ubuntu-latest
-    if: github.event_name != 'workflow_dispatch'
-
-    steps:
-      - uses: actions/checkout@v2
-        with:
-          repository: ${{ github.repository_owner }}/guestbook-go-config
-          token: ${{ secrets.CONFIG_GITHUB_TOKEN }}
-      
-      - uses: imranismail/setup-kustomize@v1
-
-      - name: Update app image
-        run: |
-          cd overlays/${{ needs.build-image.outputs.env-name }}
-          kustomize edit set image "guestbook=${{ needs.build-image.outputs.registry }}/guestbook:${{ needs.build-image.outputs.version }}"
-      - name: Commit and push app file
-        run: |
-          git add overlays/${{ needs.build-image.outputs.env-name }}
-          needs_commit=$(git diff --quiet HEAD || echo "true")
-          if [[ "${needs_commit}" == "true" ]]; then
-            git config user.email "guestbook-go-ci@example.com"
-            git config user.name "guestbook-go CI"
-            git commit -m "Update app ${{ needs.build-image.outputs.app-name }}"
-            git push origin main
-          fi
