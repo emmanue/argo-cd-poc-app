@@ -30,13 +30,7 @@ jobs:
         id: variables
         run: |
           version=${GITHUB_SHA}
-          if [[ "${{ github.event_name }}" == "push" ]]; then
-            version=$(<VERSION)
-          fi
-          env_name="staging"
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            env_name="pr"
-          fi
+          
           app_name="guestbook-${env_name}"
           echo "::set-output name=version::${version}"
           echo "::set-output name=registry::ghcr.io/${{ github.repository_owner }}"
